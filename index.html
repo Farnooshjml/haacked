@@ -11,7 +11,7 @@
  <div class="wrapper">
    <div class="leftside">
        <div class="box">
-           <div class="header"> 
+           <div class="header">
           	<div class="logo"><img class="pic" src="img/cdf546b601bf29a7eb4ca777544d11cd.jpeg"></div>
            	<div><h1><a class="left-a" href="http://haacked.com/">You've Been Haacked</a></h1><h2>...and you like it</h2></div>
             </div>
@@ -25,150 +25,15 @@
             </ul>
        </div>
        <div class="icons">
-        <a class="aaa" href="..."><img src="img/twitter.png"/></a>	
-        <a class="aaa" href="..."><img src="img/pishi.png"/></a>	
+        <a class="aaa" href="..."><img src="img/twitter.png"/></a>
+        <a class="aaa" href="..."><img src="img/pishi.png"/></a>
         <a class="aaa lastone" href="..."><img src="img/rss.png"/></a>
        </div>
-  	 </div> 
+  	 </div>
    	</div>
 	<div class="rightside">
         <div class="container">
         	<div class="content">
-            	<div class="post">
-                <h1 class="title"><a class="title" href="...">Unwrap MEF composition exceptions</a></h1>
-                <div class="div-post-menu">
-                	<ul class="post-menu-ul">
-                    	<li  class="post-menu"><img class="finghili" src="img/date.png"/>date</li>
-                        <li  class="post-menu"><img class="finghili" src="img/tag.png"/>tag</li>
-                        <li  class="post-menu"><img class="finghili" src="img/comment.png"/><a href="..." class="aaaa">comment</a></li>
-                        <li  class="post-menu"><img class="finghili" src="img/edit.png"/><a href="..." class="aaaa">edit</a></li>
-                    </ul>
-                </div>
-                <div class="text"><p>There are times when the Managed Extensibility Framework (aka MEF, the close relative of "Meh") cannot compose a part. In those cases it'll shrug (¯\(ツ)/¯) and then take a dump on your runtime execution by throwing a CompositionException.
-There are many reasons a composition will fail. There are two I run into the most often. The first is that I simply forgot to export a type. The CompositionException in this case is actually helpful.
-But the other case is when an imported type throws an exception in its constructor. Here, the exception message is pretty useless. Here's an example taken from a real application, GitHub for Windows. The actual exception is contrived for the purposes of demonstration. I changed the constructor of CreateNewRepositoryViewModel to throw an exception with the message "haha".
-System.ComponentModel.Composition.CompositionException: The composition produced a single composition error. The root cause is provided below. Review the CompositionException.Errors property for more detailed information.
-1) haha
-Resulting in: An exception occurred while trying to create an instance of type 'GitHub.ViewModels.CreateNewRepositoryViewModel'.
-Resulting in: Cannot activate part 'GitHub.ViewModels.CreateNewRepositoryViewModel'. Element: GitHub.ViewModels.CreateNewRepositoryViewModel --> GitHub.ViewModels.CreateNewRepositoryViewModel --> AssemblyCatalog (Assembly="GitHub, Version=2.7.0.2, Culture=neutral, PublicKeyToken=null")
-...
-It goes on and on. But note that the one piece of information I really really want, the piece of information that would actually help me figure out what's going on, is not present. What is the stack trace of the exception that caused this cascade of failures in the first place?!
-This exception stack trace is pretty useless. Note that you do see the root cause exception message "haha", but nothing else. You don't even know the exception type.
-But don't worry, I wouldn't be writing this blog post if I didn't have an answer for you. It may not be a good answer, but it's something that seems to work for me. I wrote a method that unwraps the composition exception and tries to retrieve the actual original exception.
-/// <summary>
-/// Attempts to retrieve the real cause of a composition failure.
-/// </summary>
-/// <remarks>
-/// Sometimes a MEF composition fails because an exception occurs in the ctor of a type we're trying to
-/// create. Unfortunately, the CompositionException doesn't make that easily available, so we don't get
-/// that info in haystack. This method tries to find that exception as that's really the only one we care
-/// about if it exists. If it can't find it, it returns the original composition exception.
-/// </remarks>
-/// <param name="exception"></param>
-/// <returns></returns>
-public static Exception UnwrapCompositionException(this Exception exception)
-{
-    var compositionException = exception as CompositionException;
-    if (compositionException == null)
-    {
-        return exception;
-    }
-
-    var unwrapped = compositionException;
-    while (unwrapped != null)
-    {
-        var firstError = unwrapped.Errors.FirstOrDefault();
-        if (firstError == null)
-        {
-            break;
-        }
-        var currentException = firstError.Exception;
-
-        if (currentException == null)
-        {
-            break;
-        }
-
-        var composablePartException = currentException as ComposablePartException;
-
-        if (composablePartException != null
-            && composablePartException.InnerException != null)
-        {
-            var innerCompositionException = composablePartException.InnerException as CompositionException;
-            if (innerCompositionException == null)
-            {
-                return currentException.InnerException ?? exception;
-            }
-            currentException = innerCompositionException;
-        }
-
-        unwrapped = currentException as CompositionException;
-    }
-
-    return exception; // Fuck it, couldn't find the real deal. Throw the original.
-}
-What this method does is search through the CompositionException structure looking for an exception that is the root cause of the failure. Basically an exception that isn't a CompositionException nor ComposablePartException.
-It seems to work fine for me, but would love to have any MEF experts look at it and let me know if I'm missing anything. For example, I only look at the first error in each CompositionException because I've never seen more than one. But that could be an implementation detail.
-Even if that strategy is incomplete, the code should be safe because if it can't find the root cause exception, it'll just return the original exception, so you're no worse off than before.
-Here's an example of our log file with this code in place, emphasis mine.
-System.InvalidOperationException: haha at GitHub.Api.ApiClient.Throw() in c:\dev\Windows\GitHub.Core\Api\ApiClient.cs:line 57 at GitHub.Api.ApiClient..ctor(HostAddress hostAddress, IObservableGitHubClient gitHubClient, Func`2 twoFactorChallengeHandler) in c:\dev\Windows\GitHub.Core\Api\ApiClient.cs:line 52 at GitHub.Api.ApiClientFactory.Create(HostAddress hostAddress) in...
-Now I can see the actual stack trace. In cases where an exception in the constructor is the cause, I really don't care about all the composition errors. This is what I really want to see. I hope you find this useful.
-Git and GitHub Resources
- December 3, 2014 git github 10 comments  edit
-Learning Git and GitHub can be daunting if you're new to it. I recently gave a small presentation where I pretty much firehosed a group of people about Git and GitHub for one hour. I felt bad that I could only really scratch the surface.
-I thought it might be useful to collect some resources that have helped me understand Git and GitHub better. If you only read one thing, read Think like a git. That'll provide a good understanding and maybe motivate you to read the others.
-Git
-Pro Git If you have time to read a full book, read this one. It's free!
-The Git Parable This story walks through what it would be like to create a Git like system from the ground up. In the process, you learn a lot about how Git is designed.
-Think like a git This is for someone who's been using Git, but doesn't feel they really understand it. If you're afraid of the rebase, this is for you. It made Git click for me and inspired me to build SeeGit.
-The thing about Git This is a bit of a philosophical piece with practical Git workflow suggestions.
-GitHub Flow Like a Pro with these 13 Git Aliases This is about Git, but also GitHub workflows. It's a useful collection of aliases I put together.
-Git on Windows
-Better Git with PowerShell Introduces Posh-Git. But don't follow the instructions for installing Posh-Git here. Instead use...
-Introducing GitHub for Windows GitHub for Windows is not only a nice UI client for Git geared towards GitHub, but it also is a great way to get the git command line and Posh-Git onto your machine.
-GitHub
-GitHub Guides A collection of short but useful guides for getting started with GitHub.
-How GitHub uses GitHub to build GitHub A great talk about how we at GitHub use GitHub.
-How GitHub no longer works Building on the previous talk, this covers how GitHub's workflow has changed over time as we've grown.
-How GitHub Saved My Marriage Covers ways that people use GitHub for non-coding endeavors like staying married.
-This is by no means a comprehensive list, and perhaps not the best list, but it's my list. Happy reading!
-Unit tests that require the STA Thread
- November 20, 2014 csharp xunit tdd wpf 6 comments  edit
-If you've ever written a unit test that instantiates a WPF control, you might have run into one of the following errors:
-The calling thread cannot access this object because a different thread owns it.
-or
-The calling thread must be STA, because many UI components require this.
-Prior to xUnit 2.0, we used a little hack to force a test to run on the STA Thread. You simply set the Timeout to 0.
-XUnit 1.9
-[Fact(Timeout=0 /* This runs on STA Thread */)]
-public void SomeTest() {...}
-But due to the asynchronous all the way down design of XUnit 2.0, the Timeout property was removed. So what's a WPF Testing person to do?
-Well, I decided to fix that problem by writing two custom attributes for tests:
-STAFactAttribute
-STATheoryAttribute
-STAFactAttribute is the same thing as FactAttribute but it makes sure the test runs on the STA thread. Same goes for STATheoryAttribute. It's the same thing as TheoryAttribute.
-For example,
-[STATheory]
-[InlineData(1)]
-[InlineData(-1)]
-public async Task SomeTest(int someValue)
-{
-  ...
-}
-I contributed this code to the xunit/samples repository on GitHub. There's a lot of great examples in this repository that demonstrate how easy it is to extend XUnit to provide a nice custom experience.
-STA Thread
-So you might be curious, what is an STA Thread? Stop with the curiosity. Some doors you do not want to open.
-But you keep reading because you can't help yourself. STA stands for Single Threaded Apartment. Apparently this is where threads go when their parents kick them out of the house and they haven't found a life partner yet. They mostly sit in this apartment, ordering takeout and playing X-Box all day long.
-STA Threads come into play when you interop with COM. Most of the time, as a .NET developer, you can ignore this. Unless you write WPF code in which case many of the controls you use depend on COM under the hood.
-What is COM? Didn't I tell you this rabbit hole goes deep? COM stands for Component Object Model. It's an insanely complicated thing created by Don Box to subjugate the masses. At least that's what my history book tells me.
-Ok, I sort of glossed over the STA part, didn't I. If you want to know more, check out the Process, Threads, and Apartments article on MSDN.
-Apartments are a way of controlling communication between objects on multiple threads. A COM object lives in an apartment and can directly communicate (call methods on) their roommates. Calls to objects in other apartments require involving the nosy busybodies of the object world, proxies.
-Single-threaded apartments consist of exactly one thread, so all COM objects that live in a single-threaded apartment can receive method calls only from the one thread that belongs to that apartment. All method calls to a COM object in a single-threaded apartment are synchronized with the windows message queue for the single-threaded apartment's thread. A process with a single thread of execution is simply a special case of this model.
-In WPF, the UI loop is an example of this. UI components must be created on the main application thread and only invoked on that thread. UI components may look pretty, but they're all single.
-For completeness, the alternative to STA is MTA or Multithreaded Apartments. This is where things get really interesting.
-Multithreaded apartments consist of one or more threads, so all COM objects that live in an multithreaded apartment can receive method calls directly from any of the threads that belong to the multithreaded apartment. Threads in a multithreaded apartment use a model called free-threading. Calls to COM objects in a multithreaded apartment are synchronized by the objects themselves.
-Yes, threads that live in a multithreaded apartment are into this whole "free-threading" lifestyle. Make of it what you will.</p></div>
-                </div>
                            	<div class="post">
                 <h1 class="title"><a class="title" href="...">Unwrap MEF composition exceptions</a></h1>
                 <div class="div-post-menu">
@@ -179,135 +44,28 @@ Yes, threads that live in a multithreaded apartment are into this whole "free-th
                         <li  class="post-menu"><img class="finghili" src="img/edit.png"/><a href="..." class="aaaa">edit</a></li>
                     </ul>
                 </div>
-                <div class="text"><p>There are times when the Managed Extensibility Framework (aka MEF, the close relative of "Meh") cannot compose a part. In those cases it'll shrug (¯\(ツ)/¯) and then take a dump on your runtime execution by throwing a CompositionException.
-There are many reasons a composition will fail. There are two I run into the most often. The first is that I simply forgot to export a type. The CompositionException in this case is actually helpful.
-But the other case is when an imported type throws an exception in its constructor. Here, the exception message is pretty useless. Here's an example taken from a real application, GitHub for Windows. The actual exception is contrived for the purposes of demonstration. I changed the constructor of CreateNewRepositoryViewModel to throw an exception with the message "haha".
-System.ComponentModel.Composition.CompositionException: The composition produced a single composition error. The root cause is provided below. Review the CompositionException.Errors property for more detailed information.
-1) haha
-Resulting in: An exception occurred while trying to create an instance of type 'GitHub.ViewModels.CreateNewRepositoryViewModel'.
-Resulting in: Cannot activate part 'GitHub.ViewModels.CreateNewRepositoryViewModel'. Element: GitHub.ViewModels.CreateNewRepositoryViewModel --> GitHub.ViewModels.CreateNewRepositoryViewModel --> AssemblyCatalog (Assembly="GitHub, Version=2.7.0.2, Culture=neutral, PublicKeyToken=null")
-...
-It goes on and on. But note that the one piece of information I really really want, the piece of information that would actually help me figure out what's going on, is not present. What is the stack trace of the exception that caused this cascade of failures in the first place?!
-This exception stack trace is pretty useless. Note that you do see the root cause exception message "haha", but nothing else. You don't even know the exception type.
-But don't worry, I wouldn't be writing this blog post if I didn't have an answer for you. It may not be a good answer, but it's something that seems to work for me. I wrote a method that unwraps the composition exception and tries to retrieve the actual original exception.
-/// <summary>
-/// Attempts to retrieve the real cause of a composition failure.
-/// </summary>
-/// <remarks>
-/// Sometimes a MEF composition fails because an exception occurs in the ctor of a type we're trying to
-/// create. Unfortunately, the CompositionException doesn't make that easily available, so we don't get
-/// that info in haystack. This method tries to find that exception as that's really the only one we care
-/// about if it exists. If it can't find it, it returns the original composition exception.
-/// </remarks>
-/// <param name="exception"></param>
-/// <returns></returns>
-public static Exception UnwrapCompositionException(this Exception exception)
-{
-    var compositionException = exception as CompositionException;
-    if (compositionException == null)
-    {
-        return exception;
-    }
-
-    var unwrapped = compositionException;
-    while (unwrapped != null)
-    {
-        var firstError = unwrapped.Errors.FirstOrDefault();
-        if (firstError == null)
-        {
-            break;
-        }
-        var currentException = firstError.Exception;
-
-        if (currentException == null)
-        {
-            break;
-        }
-
-        var composablePartException = currentException as ComposablePartException;
-
-        if (composablePartException != null
-            && composablePartException.InnerException != null)
-        {
-            var innerCompositionException = composablePartException.InnerException as CompositionException;
-            if (innerCompositionException == null)
-            {
-                return currentException.InnerException ?? exception;
-            }
-            currentException = innerCompositionException;
-        }
-
-        unwrapped = currentException as CompositionException;
-    }
-
-    return exception; // Fuck it, couldn't find the real deal. Throw the original.
-}
-What this method does is search through the CompositionException structure looking for an exception that is the root cause of the failure. Basically an exception that isn't a CompositionException nor ComposablePartException.
-It seems to work fine for me, but would love to have any MEF experts look at it and let me know if I'm missing anything. For example, I only look at the first error in each CompositionException because I've never seen more than one. But that could be an implementation detail.
-Even if that strategy is incomplete, the code should be safe because if it can't find the root cause exception, it'll just return the original exception, so you're no worse off than before.
-Here's an example of our log file with this code in place, emphasis mine.
-System.InvalidOperationException: haha at GitHub.Api.ApiClient.Throw() in c:\dev\Windows\GitHub.Core\Api\ApiClient.cs:line 57 at GitHub.Api.ApiClient..ctor(HostAddress hostAddress, IObservableGitHubClient gitHubClient, Func`2 twoFactorChallengeHandler) in c:\dev\Windows\GitHub.Core\Api\ApiClient.cs:line 52 at GitHub.Api.ApiClientFactory.Create(HostAddress hostAddress) in...
-Now I can see the actual stack trace. In cases where an exception in the constructor is the cause, I really don't care about all the composition errors. This is what I really want to see. I hope you find this useful.
-Git and GitHub Resources
- December 3, 2014 git github 10 comments  edit
-Learning Git and GitHub can be daunting if you're new to it. I recently gave a small presentation where I pretty much firehosed a group of people about Git and GitHub for one hour. I felt bad that I could only really scratch the surface.
-I thought it might be useful to collect some resources that have helped me understand Git and GitHub better. If you only read one thing, read Think like a git. That'll provide a good understanding and maybe motivate you to read the others.
-Git
-Pro Git If you have time to read a full book, read this one. It's free!
-The Git Parable This story walks through what it would be like to create a Git like system from the ground up. In the process, you learn a lot about how Git is designed.
-Think like a git This is for someone who's been using Git, but doesn't feel they really understand it. If you're afraid of the rebase, this is for you. It made Git click for me and inspired me to build SeeGit.
-The thing about Git This is a bit of a philosophical piece with practical Git workflow suggestions.
-GitHub Flow Like a Pro with these 13 Git Aliases This is about Git, but also GitHub workflows. It's a useful collection of aliases I put together.
-Git on Windows
-Better Git with PowerShell Introduces Posh-Git. But don't follow the instructions for installing Posh-Git here. Instead use...
-Introducing GitHub for Windows GitHub for Windows is not only a nice UI client for Git geared towards GitHub, but it also is a great way to get the git command line and Posh-Git onto your machine.
-GitHub
-GitHub Guides A collection of short but useful guides for getting started with GitHub.
-How GitHub uses GitHub to build GitHub A great talk about how we at GitHub use GitHub.
-How GitHub no longer works Building on the previous talk, this covers how GitHub's workflow has changed over time as we've grown.
-How GitHub Saved My Marriage Covers ways that people use GitHub for non-coding endeavors like staying married.
-This is by no means a comprehensive list, and perhaps not the best list, but it's my list. Happy reading!
-Unit tests that require the STA Thread
- November 20, 2014 csharp xunit tdd wpf 6 comments  edit
-If you've ever written a unit test that instantiates a WPF control, you might have run into one of the following errors:
-The calling thread cannot access this object because a different thread owns it.
-or
-The calling thread must be STA, because many UI components require this.
-Prior to xUnit 2.0, we used a little hack to force a test to run on the STA Thread. You simply set the Timeout to 0.
-XUnit 1.9
-[Fact(Timeout=0 /* This runs on STA Thread */)]
-public void SomeTest() {...}
-But due to the asynchronous all the way down design of XUnit 2.0, the Timeout property was removed. So what's a WPF Testing person to do?
-Well, I decided to fix that problem by writing two custom attributes for tests:
-STAFactAttribute
-STATheoryAttribute
-STAFactAttribute is the same thing as FactAttribute but it makes sure the test runs on the STA thread. Same goes for STATheoryAttribute. It's the same thing as TheoryAttribute.
-For example,
-[STATheory]
-[InlineData(1)]
-[InlineData(-1)]
-public async Task SomeTest(int someValue)
-{
-  ...
-}
-I contributed this code to the xunit/samples repository on GitHub. There's a lot of great examples in this repository that demonstrate how easy it is to extend XUnit to provide a nice custom experience.
-STA Thread
-So you might be curious, what is an STA Thread? Stop with the curiosity. Some doors you do not want to open.
-But you keep reading because you can't help yourself. STA stands for Single Threaded Apartment. Apparently this is where threads go when their parents kick them out of the house and they haven't found a life partner yet. They mostly sit in this apartment, ordering takeout and playing X-Box all day long.
-STA Threads come into play when you interop with COM. Most of the time, as a .NET developer, you can ignore this. Unless you write WPF code in which case many of the controls you use depend on COM under the hood.
-What is COM? Didn't I tell you this rabbit hole goes deep? COM stands for Component Object Model. It's an insanely complicated thing created by Don Box to subjugate the masses. At least that's what my history book tells me.
-Ok, I sort of glossed over the STA part, didn't I. If you want to know more, check out the Process, Threads, and Apartments article on MSDN.
-Apartments are a way of controlling communication between objects on multiple threads. A COM object lives in an apartment and can directly communicate (call methods on) their roommates. Calls to objects in other apartments require involving the nosy busybodies of the object world, proxies.
-Single-threaded apartments consist of exactly one thread, so all COM objects that live in a single-threaded apartment can receive method calls only from the one thread that belongs to that apartment. All method calls to a COM object in a single-threaded apartment are synchronized with the windows message queue for the single-threaded apartment's thread. A process with a single thread of execution is simply a special case of this model.
-In WPF, the UI loop is an example of this. UI components must be created on the main application thread and only invoked on that thread. UI components may look pretty, but they're all single.
-For completeness, the alternative to STA is MTA or Multithreaded Apartments. This is where things get really interesting.
-Multithreaded apartments consist of one or more threads, so all COM objects that live in an multithreaded apartment can receive method calls directly from any of the threads that belong to the multithreaded apartment. Threads in a multithreaded apartment use a model called free-threading. Calls to COM objects in a multithreaded apartment are synchronized by the objects themselves.
-Yes, threads that live in a multithreaded apartment are into this whole "free-threading" lifestyle. Make of it what you will.</p></div>
+                <div class="text">
+                	<p>hello</p>
                 </div>
+                </div>
+								<div class="post">
+									<h1 class="title"><a class="title" href="...">Unwrap MEF composition exceptions</a></h1>
+									<div class="div-post-menu">
+										<ul class="post-menu-ul">
+											<li  class="post-menu"><img class="finghili" src="img/date.png"/>date</li>
+											<li  class="post-menu"><img class="finghili" src="img/tag.png"/>tag</li>
+											<li  class="post-menu"><img class="finghili" src="img/comment.png"/><a href="..." class="aaaa">comment</a></li>
+											<li  class="post-menu"><img class="finghili" src="img/edit.png"/><a href="..." class="aaaa">edit</a></li>
+										</ul>
+									</div>
+									<div class="text">
+										<p>hello</p>
+									</div>
+								</div>
             </div>
-        
+
         </div>
-    
+
     </div>
 
  </div>
