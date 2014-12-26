@@ -119,8 +119,14 @@ li{
 .aaa{
 	float:left;
 	margin-right:15px;
+	opacity: 0.4
 }
 
 .lastone{
 	margin-right:0;
 }
+
+.aaa:hover{
+	opacity: 1.0;
+}
+	
